@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Textverarbeitung</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        padding: 20px;
+      }
+      #output {
+        margin-top: 20px;
+        padding: 10px;
+        border: 1px solid #ccc;
+        background: #f0f0f0;
+      }
+    </style>
+    <script src="jszip.js"></script>
+  </head>
+  <body>
+    <h1>Textverarbeitung mit JavaScript</h1>
+    <label for="inputText">Gib deinen Text ein:</label><br />
+    <textarea id="inputText" rows="4" cols="50"></textarea><br />
+    <button onclick="download_video_information()">Download</button>
+
+    <progress
+      id="progressBar"
+      value="0"
+      max="100"
+      style="display: none"
+    ></progress>
+
+    <div id="output"></div>
+
+    <script>
+      class Video_Information {
+        has_subs = null;
+        broadcasted_on = null;
+        show_title = null;
+        video_title = null;
+        broadcaster = null;
+
+        description = null;
+        subtitle_links = null;
+      }
+
+      async function download_video_information() {
+        const progressBar = document.getElementById("progressBar");
+        progressBar.style.display = "block";
+        let i = 0;
+
+        const eingabe = document.getElementById("inputText").value;
+        const eingabe_encoded = encodeURI(eingabe); // brauche ich nicht glaube ich
+
+        const zip = new JSZip();
+
+        const search_api = `https://api.ardmediathek.de/search-system/search/vods/ard?query=${eingabe_encoded}&pageNumber=0&pageSize=10&audioDes=false&signLang=false&childCont=false&familyOrChildCont=false&sortingCriteria=DATE_DESC&platform=MEDIA_THEK`;
+
+        const search_result = await fetch(search_api).then((resp) => {
+          if (resp.ok) {
+            return resp.json();
+          }
+        });
+
+        const videos = search_result.teasers;
+        progressBar.max = videos.length;
+
+        const video_information_objs = new Array();
+
+        for (const video of videos) {
+          const video_information = new Video_Information();
+
+          video_information.has_subs = video.subtitled;
+          video_information.broadcasted_on = video.broadcastedOn;
+          video_information.show_title = video.show.title;
+          video_information.video_title = video.longTitle;
+          video_information.broadcaster = video.show.publisher.name;
+          let more_video_information_link = video.links.target.href;
+          more_video_information_link =
+            more_video_information_link + "&mcV6=true";
+          console.log(more_video_information_link)
+
+          const more_video_information = await fetch(
+            more_video_information_link
+          ).then((resp) => {
+            if (resp.ok) {
+              return resp.json();
+            }
+          });
+
+          const information = more_video_information.widgets[0];
+          video_information.description = information.synopsis;
+          video_information.subtitle_links =
+            information.mediaCollection.embedded.subtitles;
+
+          console.log(video_information.video_title);
+          if (video_information.has_subs) {
+            // Loop through possible multiple subtitles languages.
+            for (const subtitle_language of video_information.subtitle_links) {
+              const language = subtitle_language.languageCode;
+              const type = subtitle_language.kind;
+              // Only get vtt-subtitles.
+              for (const subtitle_format of subtitle_language.sources) {
+                if (subtitle_format.kind == "webvtt") {
+                  const subtitles = await fetch(
+                    subtitle_format.url
+                  )
+                    .then((resp) => {
+                      if (resp.ok) {
+                        return resp.text();
+                      }
+                    });
+                  zip.file(`${video_information.video_title}-${language}-${type}.vtt`, subtitles);
+                }
+              }
+            }
+          }
+
+          video_information_objs.push(video_information);
+          i += 1;
+          progressBar.value = i;
+        }
+
+        const zip_blob = await zip.generateAsync({ type: "blob" });
+
+        const zip_dom_a = document.createElement("a");
+        zip_dom_a.hidden = true;
+        zip_dom_a.href = zip_blob;
+        zip_dom_a.download = "Download.zip";
+        zip_dom_a.click();
+        URL.revokeObjectURL(zip_blob);
+
+        progressBar.style.display = "none";
+
+        document.getElementById("output").innerText = JSON.stringify(
+          video_information_objs
+        );
+
+        return;
+      }
+    </script>
+  </body>
+</html>
