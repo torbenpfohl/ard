@@ -3,7 +3,7 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>ARD-Suche</title>
+        <title>ARD-Videosuche</title>
         <style>
             :root {
                 --bg: #f9f9f9;
@@ -190,6 +190,7 @@
 
                 // Titel, Teaser, Datum, Link zum Video, Sender, Untertitel
                 has_subs = null;
+                is_fsk_blocked = null;
                 broadcasted_on = null; // Final
                 show_title = null; // Addition (maybe remove)
                 video_title = null; // Final
@@ -205,6 +206,7 @@
                         "Sendedatum",
                         "Sendeuhrzeit",
                         "Videolink",
+                        "FSK Blocked",
                         "Untertitel vorhanden",
                         "Untertiteldatei",
                         "Beschreibung",
@@ -218,6 +220,7 @@
                         this.date(),
                         this.time(),
                         this.video_link,
+                        this.is_fsk_blocked,
                         this.has_subs,
                         this.subtitle_links,
                         this.description,
@@ -225,7 +228,7 @@
                 }
 
                 date() {
-                    return `${this.broadcasted_on.getFullYear()}.${this.broadcasted_on.getMonth()}.${this.broadcasted_on.getDate()}`;
+                    return `${this.broadcasted_on.getFullYear()}-${this.broadcasted_on.getMonth()}-${this.broadcasted_on.getDate()}`;
                 }
 
                 time() {
@@ -245,8 +248,13 @@
                 static progress_bar_video = "video";
                 static progress_bar_subtitles = "subtitles";
 
+                constructor() {
+                    this.cancel_requested = false;
+                    this.finished = true;
+                }
+
                 async process_full__video_information(eingabe) {
-                    const video_information_objs = new Array();
+                    let video_information_objs = new Array();
 
                     let search_api = `https://api.ardmediathek.de/search-system/search/vods/ard?query=${eingabe}&pageNumber=0&pageSize=10&audioDes=false&signLang=false&childCont=false&familyOrChildCont=false&sortingCriteria=SCORE_DESC&platform=MEDIA_THEK`;
                     // DATE_DESC, DATE_ASC schafft nur max. 1000
@@ -256,13 +264,13 @@
                     // &subtitle=true  Für nur Untertitel
 
                     // Request to get the number of elements.
-                    let search_result = await fetch(search_api).then((resp) => {
+                    let pagination_count = await fetch(search_api).then((resp) => {
                         if (resp.ok) {
                             return resp.json();
                         }
                     });
 
-                    const found_elements = search_result.pagination.totalElements;
+                    const found_elements = pagination_count.pagination.totalElements;
                     this.add_progress_bar(found_elements, eingabe, Download.progress_bar_video);
                     if (found_elements == 0) {
                         this.finish_progress_bar();
@@ -275,9 +283,12 @@
                     let processed_elements = 0;
                     const default_step = 1000;
                     let step = found_elements > 1000 ? default_step : found_elements;
-                    search_result = new Array();
+                    let search_result = new Array();
                     while (todo) {
-                        if (this.cancel_requested) return;
+                        if (this.cancel_requested) {
+                            video_information_objs = new Array();
+                            break;
+                        }
 
                         search_api = `https://api.ardmediathek.de/search-system/search/vods/ard?query=${eingabe}&pageNumber=${page}&pageSize=${step}&audioDes=false&signLang=false&childCont=false&familyOrChildCont=false&sortingCriteria=SCORE_DESC&platform=MEDIA_THEK`;
                         let partial_search_result = await fetch(search_api).then((resp) => {
@@ -305,10 +316,13 @@
                 }
 
                 async _process_partial__video_information(raw_video_data) {
-                    const partial_video_information = new Array();
+                    let partial_video_information = new Array();
 
                     for (const video of raw_video_data) {
-                        if (this.cancel_requested) return;
+                        if (this.cancel_requested) {
+                            partial_video_information = new Array();
+                            break;
+                        }
                         const video_information = new Video_Information();
 
                         video_information.has_subs = video.subtitled;
@@ -347,29 +361,34 @@
                             .trim();
                         // <-- Format the teaser/description.
 
+                        video_information.is_fsk_blocked = information.blockedByFsk;
+
                         // --> Extract the subtitle links.
                         if (video_information.has_subs) {
                             video_information.subtitle_links = new Array();
-                            let subtitle_links_raw = information.mediaCollection.embedded.subtitles;
-                            for (const subtitle_obj of subtitle_links_raw) {
-                                const kind = subtitle_obj.kind;
-                                const language = subtitle_obj.languageCode;
-                                let webvtt_sub_link;
-                                for (const sub of subtitle_obj.sources) {
-                                    if (sub.kind == "webvtt") {
-                                        webvtt_sub_link = sub.url;
+                            if (!information.blockedByFsk) {
+                                // <- If blockByFsk is true, we don't have 'mediaCollection'-data.
+                                let subtitle_links_raw = information.mediaCollection.embedded.subtitles;
+                                for (const subtitle_obj of subtitle_links_raw) {
+                                    const kind = subtitle_obj.kind;
+                                    const language = subtitle_obj.languageCode;
+                                    let webvtt_sub_link;
+                                    for (const sub of subtitle_obj.sources) {
+                                        if (sub.kind == "webvtt") {
+                                            webvtt_sub_link = sub.url;
+                                        }
                                     }
+                                    let filename = `${this.parse_free_text__video(
+                                        video_information.video_title
+                                    )}-${this.parse_free_text__video(
+                                        video_information.show_title
+                                    )}-${video_information.date()}-${video_information.time()}-${language}-${kind}.vtt`;
+                                    filename = filename.replace(/\/+/g, "-");
+                                    video_information.subtitle_links.push({
+                                        filename: filename,
+                                        link: webvtt_sub_link,
+                                    });
                                 }
-                                let filename = `${this.parse_free_text__video(
-                                    video_information.video_title
-                                )}-${this.parse_free_text__video(
-                                    video_information.show_title
-                                )}-${video_information.date()}-${video_information.time()}-${language}-${kind}.vtt`;
-                                filename = filename.replace(/\/+/g, "-");
-                                video_information.subtitle_links.push({
-                                    filename: filename,
-                                    link: webvtt_sub_link,
-                                });
                             }
                         }
                         // <-- Extract the subtitle links.
@@ -385,11 +404,19 @@
                 async download_subtitles(video_objs) {
                     // TODO: evtl. Download in Paketen.
 
-                    const videos_with_subtitles = video_objs.filter((value, index, arr) => value.has_subs).length;
+                    if (this.cancel_requested) return new Array();
+
+                    const videos_with_subtitles = video_objs.filter(
+                        (value, index, arr) => value.has_subs && value.subtitle_links.length > 0
+                    ).length;
                     this.add_progress_bar(videos_with_subtitles, null, Download.progress_bar_subtitles);
 
                     for (let index = 0; index < video_objs.length; index++) {
-                        if (video_objs[index].has_subs) {
+                        if (this.cancel_requested) {
+                            video_objs = new Array();
+                            break;
+                        }
+                        if (video_objs[index].has_subs && video_objs[index].subtitle_links.length > 0) {
                             const subtitle_links = video_objs[index].subtitle_links;
                             video_objs[index].subtitle_links = new Array();
                             for (const subtitle_obj of subtitle_links) {
@@ -413,7 +440,7 @@
                     return video_objs;
                 }
 
-                async main() {
+                async start() {
                     // --> Validate date-time.
                     const datetime_input = document.getElementById("datetimeInput");
                     if (!datetime_input.validity.valid) {
@@ -460,8 +487,13 @@
                     let video_information_objs__one_input;
                     for (const input of this.inputs) {
                         video_information_objs__one_input = await this.process_full__video_information(input);
-                        if (video_information_objs__one_input.length >= 0) {
+                        if (video_information_objs__one_input.length > 0) {
                             this.video_information_objs__multiple_inputs.push(video_information_objs__one_input);
+                        }
+
+                        if (this.cancel_requested) {
+                            this.video_information_objs__multiple_inputs = new Array();
+                            break;
                         }
                     }
 
@@ -486,20 +518,17 @@
                         this.video_information_objs__multiple_inputs
                     );
 
-                    // Display message: "x Videos, x Untertitel."
-                    const videos_with_subtitles = this.video_information_objs__multiple_inputs.filter(
-                        (value, index, arr) => value.has_subs
-                    ).length;
-                    const video_number = this.video_information_objs__multiple_inputs.length;
-                    document.getElementById(
-                        "result"
-                    ).textContent = `${video_number} Videos, ${videos_with_subtitles} Untertitel.`;
-                    document.getElementById("result").style.display = "block";
-
                     // Do we have any results?
                     if (this.video_information_objs__multiple_inputs.length == 0) {
+                        this.close();
                         return;
                     }
+
+                    // Prepare for display message: "x Videos, x Untertitel."
+                    const videos_with_subtitles = this.video_information_objs__multiple_inputs.filter(
+                        (value, index, arr) => value.subtitle_links !== null && value.subtitle_links.length > 0
+                    ).length;
+                    const video_number = this.video_information_objs__multiple_inputs.length;
 
                     // Convert into csv-lines.
                     this.video_information_objs__multiple_inputs.forEach((value, index, arr) => {
@@ -523,9 +552,15 @@
                     const zip_dom_a = document.createElement("a");
                     zip_dom_a.hidden = true;
                     zip_dom_a.href = url;
-                    zip_dom_a.download = `ARD-Download_${this.metadata.date()}-${this.metadata.time()}.zip`;
+                    zip_dom_a.download = `ARD-Download_${this.metadata.date()}_${this.metadata.time()}.zip`;
                     zip_dom_a.click();
                     URL.revokeObjectURL(url);
+
+                    // Display "x Videos, x Untertitel."
+                    document.getElementById(
+                        "result"
+                    ).textContent = `${video_number} Videos, ${videos_with_subtitles} Untertitel.`;
+                    document.getElementById("result").style.display = "block";
 
                     // Update status.
                     const status = document.getElementById("statusMessage");
@@ -535,11 +570,11 @@
                         status.style.display = "none";
                     }, 5000);
 
+                    this.close();
                     return;
                 }
 
                 get_search_params() {
-                    this.inputs = new Array();
                     for (const input of document.getElementsByClassName("textInput")) {
                         this.inputs.push(input.value);
                     }
@@ -666,15 +701,21 @@
                 initialize() {
                     this.reset_outputs();
                     this.cancel_requested = false;
+                    this.finished = false;
                     this.zip = new JSZip();
                     this.inputs = new Array();
                     this.video_information_objs__multiple_inputs = new Array();
                     this.metadata = new Metadata(new Date(Date.now()));
                 }
 
-                add_progress_bar(max, input, kind) {
-                    this.progress_counter = 0;
+                close() {
+                    if (this.cancel_requested) {
+                        this.reset_outputs();
+                    }
+                    this.finished = true;
+                }
 
+                add_progress_bar(max, input, kind) {
                     //'<div class="progressWrapper" style="margin-top: 1rem; display: block"></div>'
                     const wrapper = document.createElement("div");
                     wrapper.className = Download.progress_wrapper_class;
@@ -740,11 +781,14 @@
                 }
 
                 update_progress_bar() {
-                    this.progress_counter += 1;
                     const progress_bar = document.getElementsByClassName(Download.progress_bar_class)[0];
-                    progress_bar.value = this.progress_counter;
+                    if (progress_bar) {
+                        progress_bar.value = progress_bar.value + 1;
+                    }
                     const progress_status = document.getElementsByClassName(Download.progress_status_class)[0];
-                    progress_status.textContent = `${this.progress_counter} verarbeitet`;
+                    if (progress_status) {
+                        progress_status.textContent = `${progress_bar.value} verarbeitet`;
+                    }
                 }
 
                 finish_progress_bar() {
@@ -765,32 +809,31 @@
 
                 stop() {
                     this.cancel_requested = true;
-
-                    this.reset_outputs();
                 }
 
                 reset_outputs() {
                     const status = document.getElementById("statusMessage");
                     status.style.display = "none";
                     const progress_bars = document.getElementById(Download.progress_bar_reference_id);
-                    progress_bars.textContent = null;
+                    progress_bars.textContent = undefined;
                     const anzeige = document.getElementById("eingabeAnzeige");
                     anzeige.textContent = "";
                     const result = document.getElementById("result");
-                    result.textContent = null;
+                    result.textContent = undefined;
                     result.style.display = "none";
                 }
             }
 
-            let download = new Download();
+            const download = new Download();
 
             function start() {
-                download.main();
+                if (download.finished) {
+                    download.start();
+                }
             }
 
             function stop() {
                 download.stop();
-                download = new Download();
             }
 
             function reset_datetime() {
