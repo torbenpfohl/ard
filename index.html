@@ -1,274 +1,805 @@
 <!DOCTYPE html>
 <html lang="de">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ARD-Suche</title>
-    <style>
-      :root {
-        --bg: #f9f9f9;
-        --primary: #0057a0;
-        --accent: #0083e8;
-        --font: "Segoe UI", sans-serif;
-      }
-
-      body {
-        margin: 0;
-        padding: 0;
-        font-family: var(--font);
-        background-color: var(--bg);
-        color: #333;
-        display: flex;
-        justify-content: center;
-        align-items: flex-start;
-        min-height: 100vh;
-      }
-
-      .container {
-        max-width: 600px;
-        width: 90%;
-        margin: 2rem auto;
-        padding: 2rem;
-        background: white;
-        box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
-        border-radius: 12px;
-      }
-
-      h1 {
-        text-align: center;
-        color: var(--primary);
-      }
-
-      label {
-        font-weight: bold;
-        display: block;
-        margin-bottom: 0.5rem;
-      }
-
-      input[type="text"] {
-        width: 100%;
-        padding: 0.75rem;
-        font-size: 1rem;
-        border-radius: 8px;
-        border: 1px solid #ccc;
-        box-sizing: border-box;
-      }
-
-      .btn {
-        display: inline-block;
-        margin-top: 1rem;
-        padding: 0.75rem 1.5rem;
-        background-color: var(--primary);
-        color: white;
-        border: none;
-        border-radius: 8px;
-        cursor: pointer;
-        font-size: 1rem;
-        transition: background-color 0.3s ease;
-      }
-
-      .btn:hover {
-        background-color: var(--accent);
-      }
-
-      .info {
-        margin-top: 1.5rem;
-        font-size: 0.9rem;
-        color: #666;
-      }
-
-      @media (max-width: 480px) {
-        .container {
-          padding: 1.5rem 1rem;
-        }
-
-        .btn {
-          width: 100%;
-          text-align: center;
-        }
-      }
-    </style>
-    <script src="jszip.js"></script>
-  </head>
-  <body>
-    <div class="container">
-      <h1>ARD - Suche</h1>
-      <label for="textInput">Eine Suchanfrage eingeben:</label><br />
-      <input type="text" id="textInput" /><br />
-      <button class="btn" onclick="download_video_information()">
-        Download
-      </button>
-      <button
-        class="btn"
-        style="background-color: #ccc; color: #000"
-        onclick="stop()"
-      >
-        Stoppen
-      </button>
-      <div
-        id="eingabeAnzeige"
-        style="margin-top: 1rem; font-style: italic; color: #444"
-      ></div>
-      <progress
-        id="progressBar"
-        value="0"
-        max="100"
-        style="display: none"
-      ></progress>
-
-      <div
-        id="statusMessage"
-        style="display: none; margin-top: 1rem; color: green; font-weight: bold"
-      >
-        ZIP-Download abgeschlossen ✅
-      </div>
-    </div>
-    <script>
-      let cancel_requested = false;
-
-      class Video_Information {
-        has_subs = null;
-        broadcasted_on = null;
-        show_title = null;
-        video_title = null;
-        broadcaster = null;
-
-        description = null;
-        subtitle_links = null;
-      }
-
-      async function download_video_information() {
-        const progressBar = document.getElementById("progressBar");
-        progressBar.style.display = "block";
-
-        cancel_requested = false;
-        let i = 0;
-        const zip = new JSZip();
-
-        const eingabe = document.getElementById("textInput").value;
-
-        const anzeige = document.getElementById("eingabeAnzeige");
-        anzeige.textContent = `Eingegebener Text: "${eingabe}"`;
-
-        const search_api = `https://api.ardmediathek.de/search-system/search/vods/ard?query=${eingabe}&pageNumber=0&pageSize=200&audioDes=false&signLang=false&childCont=false&familyOrChildCont=false&sortingCriteria=SCORE_DESC&platform=MEDIA_THEK`;  // DATE_DESC, DATE_ASC schafft nur max. 1000
-
-        const search_result = await fetch(search_api).then((resp) => {
-          if (resp.ok) {
-            return resp.json();
-          }
-        });
-
-        const videos = search_result.teasers;
-        progressBar.max = videos.length;
-
-        const found_elements = search_result.pagination.totalElements;
-        if (found_elements == 0) {
-          anzeige.textContent =
-            anzeige.textContent + ", keine Elemente gefunden";
-          progressBar.value = 0;
-          progressBar.style.display = "none";
-          return;
-        }
-        anzeige.textContent =
-          anzeige.textContent + `, gefundene Elemente: ${found_elements}`;
-        // TODO: Hol alle Videos und sortiere sie selbst nach Datum.
-        // TODO: Datum berücksichtigen. Sender? 
-        // TODO: evtl. Download in Paketen.
-        // TODO: progressBar mit Anzahl an Elementen (und schon bearbeiteten Elementen)
-
-        const video_information_objs = new Array();
-
-        for (const video of videos) {
-          if (cancel_requested) return;
-          const video_information = new Video_Information();
-
-          video_information.has_subs = video.subtitled;
-          video_information.broadcasted_on = video.broadcastedOn;
-          video_information.show_title = video.show.title;
-          video_information.video_title = video.longTitle;
-          video_information.broadcaster = video.show.publisher.name;
-          let more_video_information_link = video.links.target.href;
-          more_video_information_link =
-            more_video_information_link + "&mcV6=true";
-
-          const more_video_information = await fetch(
-            more_video_information_link
-          ).then((resp) => {
-            if (resp.ok) {
-              return resp.json();
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>ARD-Suche</title>
+        <style>
+            :root {
+                --bg: #f9f9f9;
+                --primary: #0057a0;
+                --accent: #0083e8;
+                --font: "Segoe UI", sans-serif;
             }
-          });
 
-          const information = more_video_information.widgets[0];
-          video_information.description = information.synopsis;
-          video_information.subtitle_links =
-            information.mediaCollection.embedded.subtitles;
+            body {
+                margin: 0;
+                padding: 0;
+                font-family: var(--font);
+                background-color: var(--bg);
+                color: #333;
+                display: flex;
+                justify-content: center;
+                align-items: flex-start;
+                min-height: 100vh;
+            }
 
-          if (video_information.has_subs) {
-            // Loop through possible multiple subtitles languages.
-            for (const subtitle_language of video_information.subtitle_links) {
-              const language = subtitle_language.languageCode;
-              const type = subtitle_language.kind;
-              // Only get vtt-subtitles.
-              for (const subtitle_format of subtitle_language.sources) {
-                if (subtitle_format.kind == "webvtt") {
-                  const subtitles = await fetch(subtitle_format.url).then(
-                    (resp) => {
-                      if (resp.ok) {
-                        return resp.text();
-                      }
-                    }
-                  );
-                  const video_title = video_information.video_title.replace(
-                    "/",
-                    "-"
-                  );
-                  zip.file(
-                    `${video_title} (${language},${type}).vtt`,
-                    subtitles
-                  );
+            .container {
+                max-width: 600px;
+                width: 90%;
+                margin: 2rem auto;
+                padding: 2rem;
+                background: white;
+                box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+                border-radius: 12px;
+            }
+
+            h1 {
+                text-align: center;
+                color: var(--primary);
+            }
+
+            label {
+                font-weight: bold;
+                display: block;
+                margin-bottom: 0.5rem;
+            }
+
+            input[type="text"] {
+                width: 100%;
+                padding: 0.75rem;
+                font-size: 1rem;
+                border-radius: 8px;
+                border: 1px solid #ccc;
+                box-sizing: border-box;
+            }
+
+            input[type="datetime-local"] {
+                width: 100%;
+                padding: 0.75rem;
+                font-size: 1rem;
+                border-radius: 8px;
+                border: 1px solid #ccc;
+                box-sizing: border-box;
+            }
+
+            .input-row {
+                display: flex;
+                align-items: center;
+                gap: 8px; /* Abstand zwischen Eingabe und Button */
+                margin-bottom: 1rem;
+                margin-top: 0.25rem;
+            }
+
+            select {
+                width: 100%;
+                padding: 0.75rem;
+                font-size: 1rem;
+                border-radius: 8px;
+                border: 1px solid #ccc;
+                box-sizing: border-box;
+                background-color: white;
+                appearance: none;
+                background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20width%3D%2220%22%20height%3D%2210%22%20viewBox%3D%220%200%2020%2010%22%20fill%3D%22none%22%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%3E%3Cpath%20d%3D%22M1%201L10%208.5L19%201%22%20stroke%3D%22%23333%22%20stroke-width%3D%222%22/%3E%3C/svg%3E");
+                background-repeat: no-repeat;
+                background-position: right 1rem center;
+                background-size: 12px;
+            }
+
+            .btn {
+                display: inline-block;
+                margin-top: 1rem;
+                padding: 0.75rem 1.5rem;
+                background-color: var(--primary);
+                color: white;
+                border: none;
+                border-radius: 8px;
+                cursor: pointer;
+                font-size: 1rem;
+                transition: background-color 0.3s ease;
+            }
+
+            .btn:hover {
+                background-color: var(--accent);
+            }
+
+            .info {
+                margin-top: 1.5rem;
+                font-size: 0.9rem;
+                color: #666;
+            }
+
+            @media (max-width: 480px) {
+                .container {
+                    padding: 1.5rem 1rem;
                 }
-              }
+
+                .btn {
+                    width: 100%;
+                    text-align: center;
+                }
             }
-          }
+        </style>
+        <script src="jszip.js"></script>
+    </head>
+    <body>
+        <div class="container">
+            <h1>ARD - Suche</h1>
+            <label for="datetimeInput" style="margin-top: 1rem; display: block">Ausstrahldatum größer gleich:</label>
+            <small style="display: block; color: #666; margin-bottom: 6px">
+                Wenn kein Datum eingegeben wird, werden alle Ergebnisse verwendet.
+            </small>
+            <div class="input-row">
+                <input type="datetime-local" id="datetimeInput" />
+                <select id="selectOrdering">
+                    <option value="null">keine Sortierung</option>
+                    <option value="asc">Datum aufsteigend</option>
+                    <option value="desc" selected>Datum absteigend</option>
+                </select>
+                <button
+                    class="btn"
+                    style="background-color: #ccc; color: #000; margin-top: 0"
+                    onclick="reset_datetime()">
+                    Zurücksetzen
+                </button>
+            </div>
+            <label for="textInput">Eine Suchanfrage eingeben:</label>
+            <input type="text" class="textInput" id="textInput" autofocus /><br />
+            <button class="btn" onclick="start()">Download</button>
+            <button class="btn" style="background-color: #ccc; color: #000" onclick="stop()">Stoppen</button>
+            <div id="eingabeAnzeige" style="margin-top: 1rem; font-style: italic; color: #444"></div>
+            <div id="progressBarsReference"></div>
+            <div
+                id="result"
+                style="display: none; margin-top: 2rem; font-size: 1.5rem; font-weight: bold; color: #0057a0"></div>
+            <div id="statusMessage" style="display: none; margin-top: 1rem; color: green; font-weight: bold">
+                ZIP-Download(s) abgeschlossen ✅
+            </div>
+        </div>
+        <script>
+            class Metadata {
+                constructor(datetime) {
+                    this.datetime = datetime;
+                }
+                inputs = null;
+                ordering = null;
+                cutoff_datetime = null;
 
-          video_information_objs.push(video_information);
-          i += 1;
-          progressBar.value = i;
-        }
+                to_string() {
+                    return [
+                        `Abfragedatum: ${this.datetime}`,
+                        `Eingaben: ${this.inputs}`,
+                        `Sortierung: ${this.ordering === null ? "keine" : this.ordering}`,
+                        `Ausstrahlungsdatum ${
+                            this.cutoff_datetime === null ? ": keine Angabe" : ">= " + this.cutoff_datetime
+                        }`,
+                    ].join("\n");
+                }
 
-        const zip_blob = await zip.generateAsync({ type: "blob" });
-        const url = URL.createObjectURL(zip_blob);
-        const zip_dom_a = document.createElement("a");
-        zip_dom_a.hidden = true;
-        zip_dom_a.href = url;
-        zip_dom_a.download = "ARD-Untertitel.zip";
-        zip_dom_a.click();
-        URL.revokeObjectURL(url);
+                date() {
+                    return `${this.datetime.getFullYear()}.${this.datetime.getMonth()}.${this.datetime.getDate()}`;
+                }
 
-        progressBar.style.display = "none";
+                time() {
+                    return `${this.datetime.getHours()}.${this.datetime.getMinutes()}`;
+                }
+            }
 
-        const status = document.getElementById("statusMessage");
-        status.style.display = "block";
-        status.textContent = "ZIP-Download abgeschlossen";
-        setTimeout(() => {
-          status.style.display = "none";
-        }, 4000);
+            class Video_Information {
+                static separator = "\\"; // Kind of hard to find a character that is not used... use \ for now.
 
-        return;
-      }
+                // Titel, Teaser, Datum, Link zum Video, Sender, Untertitel
+                has_subs = null;
+                broadcasted_on = null; // Final
+                show_title = null; // Addition (maybe remove)
+                video_title = null; // Final
+                broadcaster = null; // Final
+                description = null; // Final
+                subtitle_links = null; // [{filename: <filename>, link: <link>}] <- possible multiple subtitles
+                video_link = null; // Final
 
-      function stop() {
-        cancel_requested = true;
+                static get_table_header() {
+                    return [
+                        "Sender",
+                        "Video",
+                        "Sendedatum",
+                        "Sendeuhrzeit",
+                        "Videolink",
+                        "Untertitel vorhanden",
+                        "Untertiteldatei",
+                        "Beschreibung",
+                    ].join(Video_Information.separator);
+                }
 
-        const status = document.getElementById("statusMessage");
-        status.style.display = "none";
-        const progressBar = document.getElementById("progressBar");
-        progressBar.value = 0;
-        progressBar.style.display = "none";
-        const anzeige = document.getElementById("eingabeAnzeige");
-        anzeige.textContent = "";
-      }
-    </script>
-  </body>
+                get_table_line() {
+                    return [
+                        this.broadcaster,
+                        this.video_title,
+                        this.date(),
+                        this.time(),
+                        this.video_link,
+                        this.has_subs,
+                        this.subtitle_links,
+                        this.description,
+                    ].join(Video_Information.separator);
+                }
+
+                date() {
+                    return `${this.broadcasted_on.getFullYear()}.${this.broadcasted_on.getMonth()}.${this.broadcasted_on.getDate()}`;
+                }
+
+                time() {
+                    return `${this.broadcasted_on.getHours()}:${this.broadcasted_on.getMinutes()}`;
+                }
+            }
+
+            class Download {
+                static progress_bar_reference_id = "progressBarsReference";
+                static progress_wrapper_class = "progressWrapper";
+                static progress_bar_class = "progressBar";
+                static progress_status_class = "progressStatus";
+
+                static desc = "desc";
+                static asc = "asc";
+
+                static progress_bar_video = "video";
+                static progress_bar_subtitles = "subtitles";
+
+                async process_full__video_information(eingabe) {
+                    const video_information_objs = new Array();
+
+                    let search_api = `https://api.ardmediathek.de/search-system/search/vods/ard?query=${eingabe}&pageNumber=0&pageSize=10&audioDes=false&signLang=false&childCont=false&familyOrChildCont=false&sortingCriteria=SCORE_DESC&platform=MEDIA_THEK`;
+                    // DATE_DESC, DATE_ASC schafft nur max. 1000
+                    // SCORE_DESC max. 10.000
+                    // TODO : da z.B. für drogenk DATE_DESC nur 420 Ergebnisse, SCORE_DESC aber 647 (bereinigt 600) liefert,
+                    //        ist zu prüfen, ob DATE_DESC einfach weniger Ergebnisse liefert, oder auch andere.
+                    // &subtitle=true  Für nur Untertitel
+
+                    // Request to get the number of elements.
+                    let search_result = await fetch(search_api).then((resp) => {
+                        if (resp.ok) {
+                            return resp.json();
+                        }
+                    });
+
+                    const found_elements = search_result.pagination.totalElements;
+                    this.add_progress_bar(found_elements, eingabe, Download.progress_bar_video);
+                    if (found_elements == 0) {
+                        this.finish_progress_bar();
+                        return video_information_objs;
+                    }
+
+                    // Download in increments of 1000 (max. pageSize == 1000)
+                    let todo = true;
+                    let page = 0;
+                    let processed_elements = 0;
+                    const default_step = 1000;
+                    let step = found_elements > 1000 ? default_step : found_elements;
+                    search_result = new Array();
+                    while (todo) {
+                        if (this.cancel_requested) return;
+
+                        search_api = `https://api.ardmediathek.de/search-system/search/vods/ard?query=${eingabe}&pageNumber=${page}&pageSize=${step}&audioDes=false&signLang=false&childCont=false&familyOrChildCont=false&sortingCriteria=SCORE_DESC&platform=MEDIA_THEK`;
+                        let partial_search_result = await fetch(search_api).then((resp) => {
+                            if (resp.ok) {
+                                return resp.json();
+                            }
+                        });
+                        video_information_objs.push(
+                            ...(await this._process_partial__video_information(partial_search_result.teasers))
+                        );
+
+                        processed_elements += step;
+                        if (processed_elements >= found_elements) {
+                            todo = false;
+                        }
+                        if (processed_elements + default_step > found_elements) {
+                            step = found_elements - processed_elements;
+                        }
+                        page += 1;
+                    }
+
+                    this.finish_progress_bar();
+
+                    return video_information_objs;
+                }
+
+                async _process_partial__video_information(raw_video_data) {
+                    const partial_video_information = new Array();
+
+                    for (const video of raw_video_data) {
+                        if (this.cancel_requested) return;
+                        const video_information = new Video_Information();
+
+                        video_information.has_subs = video.subtitled;
+                        video_information.broadcasted_on = new Date(video.broadcastedOn);
+                        video_information.show_title = video.show.title;
+                        video_information.video_title = video.longTitle;
+                        video_information.broadcaster = video.show.publisher.name;
+                        video_information.video_link = this.parse_video_url(video);
+                        let more_video_information_link = video.links.target.href;
+                        more_video_information_link = more_video_information_link + "&mcV6=true";
+
+                        const more_video_information = await fetch(more_video_information_link).then((resp) => {
+                            if (resp.ok) {
+                                return resp.json();
+                            }
+                        });
+
+                        const information = more_video_information.widgets[0];
+
+                        // testing:
+                        // const new_date = new Date(information.mediaCollection.embedded.meta.broadcastedOnDateTime)
+                        // // new_date scheint die Zeit zu sein, an der die Sendung wirklich ausgeschrahlt wurde.
+                        // if (new_date.getTime() != video_information.broadcasted_on.getTime()) {
+                        //   console.log(video_information.broadcasted_on)
+                        //   console.log(new_date)
+                        //   console.log()
+                        // }
+
+                        // --> Format the teaser/description.
+                        const temp_div = document.createElement("div");
+                        temp_div.innerHTML = information.synopsis;
+                        video_information.description = temp_div.text || temp_div.innerText || "";
+                        video_information.description = video_information.description
+                            .replace(/[\r\n]+/g, " ")
+                            .replace(/\s+/g, " ")
+                            .trim();
+                        // <-- Format the teaser/description.
+
+                        // --> Extract the subtitle links.
+                        if (video_information.has_subs) {
+                            video_information.subtitle_links = new Array();
+                            let subtitle_links_raw = information.mediaCollection.embedded.subtitles;
+                            for (const subtitle_obj of subtitle_links_raw) {
+                                const kind = subtitle_obj.kind;
+                                const language = subtitle_obj.languageCode;
+                                let webvtt_sub_link;
+                                for (const sub of subtitle_obj.sources) {
+                                    if (sub.kind == "webvtt") {
+                                        webvtt_sub_link = sub.url;
+                                    }
+                                }
+                                let filename = `${this.parse_free_text__video(
+                                    video_information.video_title
+                                )}-${this.parse_free_text__video(
+                                    video_information.show_title
+                                )}-${video_information.date()}-${video_information.time()}-${language}-${kind}.vtt`;
+                                filename = filename.replace(/\/+/g, "-");
+                                video_information.subtitle_links.push({
+                                    filename: filename,
+                                    link: webvtt_sub_link,
+                                });
+                            }
+                        }
+                        // <-- Extract the subtitle links.
+
+                        partial_video_information.push(video_information);
+
+                        this.update_progress_bar();
+                    }
+
+                    return partial_video_information;
+                }
+
+                async download_subtitles(video_objs) {
+                    // TODO: evtl. Download in Paketen.
+
+                    const videos_with_subtitles = video_objs.filter((value, index, arr) => value.has_subs).length;
+                    this.add_progress_bar(videos_with_subtitles, null, Download.progress_bar_subtitles);
+
+                    for (let index = 0; index < video_objs.length; index++) {
+                        if (video_objs[index].has_subs) {
+                            const subtitle_links = video_objs[index].subtitle_links;
+                            video_objs[index].subtitle_links = new Array();
+                            for (const subtitle_obj of subtitle_links) {
+                                // Download the subtitles.
+                                const subtitles_data = await fetch(subtitle_obj.link).then((resp) => {
+                                    if (resp.ok) {
+                                        return resp.text();
+                                    }
+                                });
+                                // Add subtitle-file to zip.
+                                this.zip.file(`subtitles/${subtitle_obj.filename}`, subtitles_data);
+                                // Write subtitle-files to video_obj
+                                video_objs[index].subtitle_links.push(subtitle_obj.filename);
+                            }
+                            this.update_progress_bar();
+                        }
+                    }
+
+                    this.finish_progress_bar();
+
+                    return video_objs;
+                }
+
+                async main() {
+                    // --> Validate date-time.
+                    const datetime_input = document.getElementById("datetimeInput");
+                    if (!datetime_input.validity.valid) {
+                        alert("Bitte ein gültiges Datum und eine gültige Uhrzeit eingeben.");
+                        return;
+                    }
+                    if (datetime_input.value) {
+                        this.cutoff_datetime = new Date(datetime_input.value);
+                    } else {
+                        this.cutoff_datetime = null;
+                    }
+                    // <-- Validate date-time.
+
+                    // --> Get selected order.
+                    const order_input = document.getElementById("selectOrdering");
+                    switch (order_input.value) {
+                        case "desc":
+                            this.ordering = Download.desc;
+                            break;
+                        case "asc":
+                            this.ordering = Download.asc;
+                            break;
+                        default:
+                            this.ordering = null;
+                            break;
+                    }
+                    // <-- Get selected order.
+
+                    // Initialize values.
+                    this.initialize();
+
+                    // Get search input strings from html.
+                    this.get_search_params();
+
+                    this.metadata.inputs = this.inputs;
+                    this.metadata.ordering = this.ordering;
+                    this.metadata.cutoff_datetime = this.cutoff_datetime;
+
+                    // Show search input strings.
+                    const anzeige = document.getElementById("eingabeAnzeige");
+                    anzeige.textContent = `Eingegebene Suchwörter: "${this.inputs}"`;
+
+                    // Get the data.
+                    let video_information_objs__one_input;
+                    for (const input of this.inputs) {
+                        video_information_objs__one_input = await this.process_full__video_information(input);
+                        if (video_information_objs__one_input.length >= 0) {
+                            this.video_information_objs__multiple_inputs.push(video_information_objs__one_input);
+                        }
+                    }
+
+                    // Deletes duplicates and flattens the array from 2- to 1-dimension.
+                    this.video_information_objs__multiple_inputs = this.compare_results__multiple_inputs(
+                        this.video_information_objs__multiple_inputs
+                    );
+
+                    // Apply cutoff_datetime.
+                    this.video_information_objs__multiple_inputs = this.apply_cutoff_datetime(
+                        this.video_information_objs__multiple_inputs
+                    );
+
+                    // Sort on date.
+                    this.video_information_objs__multiple_inputs = this.sort_on_date(
+                        this.video_information_objs__multiple_inputs,
+                        this.ordering
+                    );
+
+                    // Download the subtitles.
+                    this.video_information_objs__multiple_inputs = await this.download_subtitles(
+                        this.video_information_objs__multiple_inputs
+                    );
+
+                    // Display message: "x Videos, x Untertitel."
+                    const videos_with_subtitles = this.video_information_objs__multiple_inputs.filter(
+                        (value, index, arr) => value.has_subs
+                    ).length;
+                    const video_number = this.video_information_objs__multiple_inputs.length;
+                    document.getElementById(
+                        "result"
+                    ).textContent = `${video_number} Videos, ${videos_with_subtitles} Untertitel.`;
+                    document.getElementById("result").style.display = "block";
+
+                    // Do we have any results?
+                    if (this.video_information_objs__multiple_inputs.length == 0) {
+                        return;
+                    }
+
+                    // Convert into csv-lines.
+                    this.video_information_objs__multiple_inputs.forEach((value, index, arr) => {
+                        arr[index] = value.get_table_line();
+                    });
+                    // Add column-header.
+                    this.video_information_objs__multiple_inputs.unshift(Video_Information.get_table_header());
+
+                    // Create csv-data.
+                    const csv_data = this.video_information_objs__multiple_inputs.join("\n");
+
+                    // Add metadata to zip.
+                    this.zip.file("metadata.txt", this.metadata.to_string());
+
+                    // Add csv-data to zip.
+                    this.zip.file("video_data.csv", csv_data);
+
+                    // Create zip-blob and download.
+                    const zip_blob = await this.zip.generateAsync({ type: "blob" });
+                    const url = URL.createObjectURL(zip_blob);
+                    const zip_dom_a = document.createElement("a");
+                    zip_dom_a.hidden = true;
+                    zip_dom_a.href = url;
+                    zip_dom_a.download = `ARD-Download_${this.metadata.date()}-${this.metadata.time()}.zip`;
+                    zip_dom_a.click();
+                    URL.revokeObjectURL(url);
+
+                    // Update status.
+                    const status = document.getElementById("statusMessage");
+                    status.style.display = "block";
+                    status.textContent = "ZIP-Download abgeschlossen";
+                    setTimeout(() => {
+                        status.style.display = "none";
+                    }, 5000);
+
+                    return;
+                }
+
+                get_search_params() {
+                    this.inputs = new Array();
+                    for (const input of document.getElementsByClassName("textInput")) {
+                        this.inputs.push(input.value);
+                    }
+                }
+
+                apply_cutoff_datetime(video_objs) {
+                    if (this.cutoff_datetime) {
+                        return video_objs.filter((elem) => elem.broadcasted_on >= this.cutoff_datetime);
+                    } else {
+                        return video_objs;
+                    }
+                }
+
+                sort_on_date(video_objs, order) {
+                    // Sort on broadcast date and time
+                    if (order === null) {
+                        return video_objs;
+                    }
+
+                    if (order === Download.desc) {
+                        video_objs.sort((e1, e2) => e2.broadcasted_on - e1.broadcasted_on);
+                    } else if (order === Download.asc) {
+                        video_objs.sort((e1, e2) => e1.broadcasted_on - e2.broadcasted_on);
+                    }
+                    return video_objs;
+                }
+
+                compare_results__multiple_inputs(video_objs_2d) {
+                    // TODO: Maybe add and merge the input-fields.
+                    // Check if comparing the video-obj is ok, or if I should compare only parts of the video-obj.
+
+                    const video_objs_1d = new Array();
+                    const seen_videos = new Set();
+
+                    for (const video_obj_arr of video_objs_2d) {
+                        for (const video of video_obj_arr) {
+                            if (!seen_videos.has(video.video_link)) {
+                                seen_videos.add(video.video_link);
+                                video_objs_1d.push(video);
+                            }
+                        }
+                    }
+
+                    return video_objs_1d;
+                }
+
+                parse_free_text__video(text) {
+                    if (typeof text != "string") {
+                        return "";
+                    }
+                    let parsed_text;
+
+                    parsed_text = text.trim();
+                    parsed_text = parsed_text.replace(/[^\w\s\-]/g, "-");
+                    parsed_text = parsed_text
+                        .replace(/\s+/g, "-")
+                        .replace(/-+/g, "-")
+                        .replace(/^-+|-+$/g, "");
+                    if (parsed_text.length > 300) {
+                        parsed_text =
+                            parsed_text.charAt(300) === "-"
+                                ? parsed_text.slice(0, 300)
+                                : parsed_text.slice(0, parsed_text.lastIndexOf("-"));
+                    }
+                    parsed_text = parsed_text.toLowerCase();
+
+                    return parsed_text;
+                }
+
+                parse_video_url(raw_data) {
+                    const base_ard_address = "https://www.ardmediathek.de";
+
+                    const type = raw_data.type;
+                    const available_season = raw_data.availableSeason?.[0];
+
+                    const id = raw_data.links?.target.urlId || raw_data.id;
+                    const video_title = raw_data.shortTitle || raw_data.title;
+                    const is_child_content = raw_data.isChildContent;
+                    const broadcast_service = raw_data.publicationService?.name;
+                    const channel_type = raw_data.links?.target?.partner;
+                    const show_title = raw_data.show?.title;
+
+                    if (raw_data.isExpired) {
+                        return null;
+                    }
+                    if (raw_data.links?.target.type === "application/vnd.ard.external") {
+                        return raw_data.links?.target.href;
+                    }
+
+                    switch (type) {
+                        case "live":
+                        // TODO
+                        case "compilation":
+                        // TODO
+                        case "ondemand":
+                        case "poster":
+                        case "event":
+                            // id, video_title, is_child_content, publication_service, show_title
+                            let link = `/video/${id}`;
+                            if (video_title && broadcast_service && show_title) {
+                                link = `/video/${this.parse_free_text__video(show_title)}/${this.parse_free_text__video(
+                                    video_title
+                                )}/${this.parse_free_text__video(broadcast_service)}/${id}`;
+                            }
+                            if (is_child_content) {
+                                link += "?isChildContent";
+                            }
+                            return base_ard_address + link;
+                        case "editorialPage":
+                        // TODO
+                        case "channel":
+                        // TODO
+                        case "show":
+                        // TODO
+                        case "series":
+                        // TODO
+                        case "clip":
+                        // TODO
+                        default:
+                            return null;
+                    }
+                }
+
+                initialize() {
+                    this.reset_outputs();
+                    this.cancel_requested = false;
+                    this.zip = new JSZip();
+                    this.inputs = new Array();
+                    this.video_information_objs__multiple_inputs = new Array();
+                    this.metadata = new Metadata(new Date(Date.now()));
+                }
+
+                add_progress_bar(max, input, kind) {
+                    this.progress_counter = 0;
+
+                    //'<div class="progressWrapper" style="margin-top: 1rem; display: block"></div>'
+                    const wrapper = document.createElement("div");
+                    wrapper.className = Download.progress_wrapper_class;
+                    wrapper.style.marginTop = "1rem";
+                    wrapper.style.display = "block";
+
+                    let progress_text_content;
+                    if (kind === Download.progress_bar_video) {
+                        if (max == 0) {
+                            progress_text_content = `Keine Videoinformationen für ${input} gefunden.`;
+                        } else {
+                            progress_text_content = `Videoinformationen für ${input} werden verarbeitet... (${max} Elemente)`;
+                        }
+                    } else if (kind === Download.progress_bar_subtitles) {
+                        if (max == 0) {
+                            progress_text_content = "Keine Untertitel gefunden.";
+                        } else {
+                            progress_text_content = `${max} Untertitel werden heruntergeladen...`;
+                        }
+                    }
+
+                    let progress_text;
+                    if (max == 0) {
+                        progress_text = document.createElement("div");
+                        progress_text.style.fontWeight = "bold";
+                        progress_text.style.marginBottom = "0.3rem";
+                        progress_text.style.color = "#0057a0";
+                        progress_text.textContent = progress_text_content;
+
+                        wrapper.appendChild(progress_text);
+                    } else {
+                        //`<div style="font-weight: bold; margin-bottom: 0.3rem; color: #0057a0">Videoinformationen für ${input} werden verarbeitet... (${max} Elemente)</div>`
+                        progress_text = document.createElement("div");
+                        progress_text.style.fontWeight = "bold";
+                        progress_text.style.marginBottom = "0.3rem";
+                        progress_text.style.color = "#0057a0";
+                        progress_text.textContent = progress_text_content;
+
+                        //`<progress class="progressBar" value="0" max="${max}" style="width: 100%; height: 20px"></progress>`
+                        const progress_bar = document.createElement("progress");
+                        progress_bar.className = Download.progress_bar_class;
+                        progress_bar.value = 0;
+                        progress_bar.max = max;
+                        progress_bar.style.width = "100%";
+                        progress_bar.style.height = "20px";
+
+                        //`<div class="progressText" style="text-align: right; margin-top: 0.25rem; font-size: 0.9rem; color: #444;">0 verarbeitet</div>`
+                        const progress_status = document.createElement("div");
+                        progress_status.className = Download.progress_status_class;
+                        progress_status.style.textAlign = "right";
+                        progress_status.style.marginTop = "0.25rem";
+                        progress_status.style.fontSize = "0.9rem";
+                        progress_status.style.color = "#444";
+                        progress_status.textContent = "0 verarbeitet";
+
+                        wrapper.appendChild(progress_text);
+                        wrapper.appendChild(progress_bar);
+                        wrapper.appendChild(progress_status);
+                    }
+
+                    const progress_bar_reference = document.getElementById(Download.progress_bar_reference_id);
+                    progress_bar_reference.appendChild(wrapper);
+                }
+
+                update_progress_bar() {
+                    this.progress_counter += 1;
+                    const progress_bar = document.getElementsByClassName(Download.progress_bar_class)[0];
+                    progress_bar.value = this.progress_counter;
+                    const progress_status = document.getElementsByClassName(Download.progress_status_class)[0];
+                    progress_status.textContent = `${this.progress_counter} verarbeitet`;
+                }
+
+                finish_progress_bar() {
+                    // remove the class and id's from the current class.
+                    const wrapper = document.getElementsByClassName(Download.progress_wrapper_class)[0];
+                    wrapper.classList.remove(Download.progress_wrapper_class);
+                    let progress_bar = document.getElementsByClassName(Download.progress_bar_class);
+                    if (progress_bar.length > 0) {
+                        progress_bar[0].classList.remove(Download.progress_bar_class);
+                    }
+                    let progress_status = document.getElementsByClassName(Download.progress_status_class);
+                    if (progress_status.length > 0) {
+                        progress_status = progress_status[0];
+                        progress_status.classList.remove(Download.progress_status_class);
+                        progress_status.textContent = "Fertig";
+                    }
+                }
+
+                stop() {
+                    this.cancel_requested = true;
+
+                    this.reset_outputs();
+                }
+
+                reset_outputs() {
+                    const status = document.getElementById("statusMessage");
+                    status.style.display = "none";
+                    const progress_bars = document.getElementById(Download.progress_bar_reference_id);
+                    progress_bars.textContent = null;
+                    const anzeige = document.getElementById("eingabeAnzeige");
+                    anzeige.textContent = "";
+                    const result = document.getElementById("result");
+                    result.textContent = null;
+                    result.style.display = "none";
+                }
+            }
+
+            let download = new Download();
+
+            function start() {
+                download.main();
+            }
+
+            function stop() {
+                download.stop();
+                download = new Download();
+            }
+
+            function reset_datetime() {
+                download.cutoff_datetime = null;
+                const datetime_input = document.querySelector("#datetimeInput");
+                datetime_input.value = null;
+                const order_input = document.querySelector("#selectOrdering");
+                order_input.value = "desc";
+            }
+        </script>
+    </body>
 </html>
