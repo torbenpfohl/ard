@@ -144,9 +144,24 @@
                 </button>
             </div>
             <label for="textInput">Eine Suchanfrage eingeben:</label>
-            <input type="text" class="textInput" id="textInput" autofocus /><br />
+            <div id="inputFieldsReference">
+                <div class="input-row">
+                    <input type="text" class="textInput" autofocus /><br />
+                    <button
+                        class="btn"
+                        type="button"
+                        onclick="add_input_field()"
+                        title="Eingabefeld hinzufügen"
+                        style="margin-top: 0; font-weight: bold">
+                        <!--  width: 57px; height: 46px;"> -->
+                        +
+                    </button>
+                </div>
+                <!-- Here we add additional input-fields. -->
+            </div>
             <button class="btn" onclick="start()">Download</button>
             <button class="btn" style="background-color: #ccc; color: #000" onclick="stop()">Stoppen</button>
+            <!-- TODO: Add a RESET-button. -->
             <div id="eingabeAnzeige" style="margin-top: 1rem; font-style: italic; color: #444"></div>
             <div id="progressBarsReference"></div>
             <div
@@ -177,16 +192,27 @@
                 }
 
                 date() {
-                    return `${this.datetime.getFullYear()}.${this.datetime.getMonth()}.${this.datetime.getDate()}`;
+                    return `${this.datetime.getFullYear()}-${("0" + (this.datetime.getMonth() + 1)).slice(-2)}-${(
+                        "0" + this.datetime.getDate()
+                    ).slice(-2)}`;
                 }
 
                 time() {
-                    return `${this.datetime.getHours()}.${this.datetime.getMinutes()}`;
+                    return `${("0" + this.datetime.getHours()).slice(-2)}-${("0" + this.datetime.getMinutes()).slice(
+                        -2
+                    )}`;
                 }
             }
 
             class Video_Information {
-                static separator = "\\"; // Kind of hard to find a character that is not used... use \ for now.
+                static separator = "\\";  // Kind of hard to find a character that is not used... use \ for now.
+
+                constructor(inputs) {
+                    this.inputs = {};
+                    for (const elem of inputs) {
+                        this.inputs[elem] = false;
+                    }
+                }
 
                 // Titel, Teaser, Datum, Link zum Video, Sender, Untertitel
                 has_subs = null;
@@ -199,8 +225,8 @@
                 subtitle_links = null; // [{filename: <filename>, link: <link>}] <- possible multiple subtitles
                 video_link = null; // Final
 
-                static get_table_header() {
-                    return [
+                static get_table_header(inputs) {
+                    const header = [
                         "Sender",
                         "Video",
                         "Sendedatum",
@@ -210,29 +236,43 @@
                         "Untertitel vorhanden",
                         "Untertiteldatei",
                         "Beschreibung",
-                    ].join(Video_Information.separator);
+                    ];
+                    header.unshift(...inputs);
+                    return header.join(Video_Information.separator);
                 }
 
                 get_table_line() {
-                    return [
+                    const elements = [
                         this.broadcaster,
                         this.video_title,
                         this.date(),
-                        this.time(),
+                        this.safe_time(),
                         this.video_link,
                         this.is_fsk_blocked,
                         this.has_subs,
                         this.subtitle_links,
                         this.description,
-                    ].join(Video_Information.separator);
+                    ];
+                    elements.unshift(...Object.values(this.inputs));
+                    return elements.join(Video_Information.separator);
                 }
 
                 date() {
-                    return `${this.broadcasted_on.getFullYear()}-${this.broadcasted_on.getMonth()}-${this.broadcasted_on.getDate()}`;
+                    return `${this.broadcasted_on.getFullYear()}-${("0" + (this.broadcasted_on.getMonth() + 1)).slice(
+                        -2
+                    )}-${("0" + this.broadcasted_on.getDate()).slice(-2)}`;
                 }
 
                 time() {
-                    return `${this.broadcasted_on.getHours()}-${this.broadcasted_on.getMinutes()}`;
+                    return `${("0" + this.broadcasted_on.getHours()).slice(-2)}-${(
+                        "0" + this.broadcasted_on.getMinutes()
+                    ).slice(-2)}`;
+                }
+
+                safe_time() {
+                    return `${("0" + this.broadcasted_on.getHours()).slice(-2)}:${(
+                        "0" + this.broadcasted_on.getMinutes()
+                    ).slice(-2)}`;
                 }
             }
 
@@ -253,6 +293,29 @@
                     this.finished = true;
                 }
 
+                async _fetch(url, res_type) {
+                    let max_retries = 3;
+                    let result;
+                    for (let counter = 0; counter < max_retries; counter++) {
+                        result = await fetch(url).then((resp) => {
+                            if (resp.ok) {
+                                if (res_type == "json") {
+                                    return resp.json();
+                                } else if (res_type == "text") {
+                                    return resp.text();
+                                }
+                            } else {
+                                setTimeout(() => {}, 2000);
+                                return null;
+                            }
+                        });
+                        if (result !== null) {
+                            break;
+                        }
+                    }
+                    return result;
+                }
+
                 async process_full__video_information(eingabe) {
                     let video_information_objs = new Array();
 
@@ -260,15 +323,11 @@
                     // DATE_DESC, DATE_ASC schafft nur max. 1000
                     // SCORE_DESC max. 10.000
                     // TODO : da z.B. für drogenk DATE_DESC nur 420 Ergebnisse, SCORE_DESC aber 647 (bereinigt 600) liefert,
-                    //        ist zu prüfen, ob DATE_DESC einfach weniger Ergebnisse liefert, oder auch andere.
+                    //        ist zu prüfen, ob DATE_DESC einfach weniger Ergebnisse liefert, oder auch andere. <- nach wenigen Tests scheint SCORE_DESC alles zu liefern und DATE_DESC nur eine Teilmenge.
                     // &subtitle=true  Für nur Untertitel
 
                     // Request to get the number of elements.
-                    let pagination_count = await fetch(search_api).then((resp) => {
-                        if (resp.ok) {
-                            return resp.json();
-                        }
-                    });
+                    let pagination_count = await this._fetch(search_api, "json");
 
                     const found_elements = pagination_count.pagination.totalElements;
                     this.add_progress_bar(found_elements, eingabe, Download.progress_bar_video);
@@ -291,13 +350,11 @@
                         }
 
                         search_api = `https://api.ardmediathek.de/search-system/search/vods/ard?query=${eingabe}&pageNumber=${page}&pageSize=${step}&audioDes=false&signLang=false&childCont=false&familyOrChildCont=false&sortingCriteria=SCORE_DESC&platform=MEDIA_THEK`;
-                        let partial_search_result = await fetch(search_api).then((resp) => {
-                            if (resp.ok) {
-                                return resp.json();
-                            }
-                        });
+
+                        let partial_search_result = await this._fetch(search_api, "json");
+
                         video_information_objs.push(
-                            ...(await this._process_partial__video_information(partial_search_result.teasers))
+                            ...(await this._process_partial__video_information(partial_search_result.teasers, eingabe))
                         );
 
                         processed_elements += step;
@@ -315,7 +372,7 @@
                     return video_information_objs;
                 }
 
-                async _process_partial__video_information(raw_video_data) {
+                async _process_partial__video_information(raw_video_data, eingabe) {
                     let partial_video_information = new Array();
 
                     for (const video of raw_video_data) {
@@ -323,7 +380,8 @@
                             partial_video_information = new Array();
                             break;
                         }
-                        const video_information = new Video_Information();
+                        const video_information = new Video_Information(this.inputs);
+                        video_information.inputs[eingabe] = true;
 
                         video_information.has_subs = video.subtitled;
                         video_information.broadcasted_on = new Date(video.broadcastedOn);
@@ -334,11 +392,7 @@
                         let more_video_information_link = video.links.target.href;
                         more_video_information_link = more_video_information_link + "&mcV6=true";
 
-                        const more_video_information = await fetch(more_video_information_link).then((resp) => {
-                            if (resp.ok) {
-                                return resp.json();
-                            }
-                        });
+                        const more_video_information = await this._fetch(more_video_information_link, "json");
 
                         const information = more_video_information.widgets[0];
 
@@ -402,7 +456,6 @@
                 }
 
                 async download_subtitles(video_objs) {
-                    // TODO: evtl. Download in Paketen.
 
                     if (this.cancel_requested) return new Array();
 
@@ -421,11 +474,7 @@
                             video_objs[index].subtitle_links = new Array();
                             for (const subtitle_obj of subtitle_links) {
                                 // Download the subtitles.
-                                const subtitles_data = await fetch(subtitle_obj.link).then((resp) => {
-                                    if (resp.ok) {
-                                        return resp.text();
-                                    }
-                                });
+                                const subtitles_data = await this._fetch(subtitle_obj.link, "text");
                                 // Add subtitle-file to zip.
                                 this.zip.file(`subtitles/${subtitle_obj.filename}`, subtitles_data);
                                 // Write subtitle-files to video_obj
@@ -475,13 +524,13 @@
                     // Get search input strings from html.
                     this.get_search_params();
 
-                    this.metadata.inputs = this.inputs;
+                    this.metadata.inputs = this.inputs.map((value) => '"' + value + '"');
                     this.metadata.ordering = this.ordering;
                     this.metadata.cutoff_datetime = this.cutoff_datetime;
 
                     // Show search input strings.
                     const anzeige = document.getElementById("eingabeAnzeige");
-                    anzeige.textContent = `Eingegebene Suchwörter: "${this.inputs}"`;
+                    anzeige.textContent = `Eingegebene Suchwörter: ${this.inputs.map((value) => '"' + value + '"')}`;
 
                     // Get the data.
                     let video_information_objs__one_input;
@@ -535,7 +584,9 @@
                         arr[index] = value.get_table_line();
                     });
                     // Add column-header.
-                    this.video_information_objs__multiple_inputs.unshift(Video_Information.get_table_header());
+                    this.video_information_objs__multiple_inputs.unshift(
+                        Video_Information.get_table_header(this.inputs)
+                    );
 
                     // Create csv-data.
                     const csv_data = this.video_information_objs__multiple_inputs.join("\n");
@@ -568,7 +619,7 @@
                     status.textContent = "ZIP-Download abgeschlossen";
                     setTimeout(() => {
                         status.style.display = "none";
-                    }, 5000);
+                    }, 10000);
 
                     this.close();
                     return;
@@ -604,24 +655,36 @@
 
                 compare_results__multiple_inputs(video_objs_2d) {
                     // TODO: Maybe add and merge the input-fields.
-                    // Check if comparing the video-obj is ok, or if I should compare only parts of the video-obj.
 
-                    const video_objs_1d = new Array();
+                    const video_objs_1d = new Object();
                     const seen_videos = new Set();
 
                     for (const video_obj_arr of video_objs_2d) {
+                        let current_input;
+                        for (const [key, value] of Object.entries(video_obj_arr[0].inputs)) {
+                            if (value) {
+                                current_input = key;
+                            }
+                        }
                         for (const video of video_obj_arr) {
                             if (!seen_videos.has(video.video_link)) {
                                 seen_videos.add(video.video_link);
-                                video_objs_1d.push(video);
+                                video_objs_1d[video.video_link] = video;
+                            } else {
+                                // Search for the video in video_objs_1d.
+                                // Set the current input-column to true.
+                                video_objs_1d[video.video_link].inputs[current_input] = true;
                             }
                         }
                     }
 
-                    return video_objs_1d;
+                    const video_objs_1d_return = Object.values(video_objs_1d);
+
+                    return video_objs_1d_return;
                 }
 
                 parse_free_text__video(text) {
+                    // We don't need this..
                     if (typeof text != "string") {
                         return "";
                     }
@@ -674,11 +737,11 @@
                         case "event":
                             // id, video_title, is_child_content, publication_service, show_title
                             let link = `/video/${id}`;
-                            if (video_title && broadcast_service && show_title) {
-                                link = `/video/${this.parse_free_text__video(show_title)}/${this.parse_free_text__video(
-                                    video_title
-                                )}/${this.parse_free_text__video(broadcast_service)}/${id}`;
-                            }
+                            // if (video_title && broadcast_service && show_title) {
+                            //     link = `/video/${this.parse_free_text__video(show_title)}/${this.parse_free_text__video(
+                            //         video_title
+                            //     )}/${this.parse_free_text__video(broadcast_service)}/${id}`;
+                            // }                                                                                            // We do not need this..
                             if (is_child_content) {
                                 link += "?isChildContent";
                             }
@@ -842,6 +905,42 @@
                 datetime_input.value = null;
                 const order_input = document.querySelector("#selectOrdering");
                 order_input.value = "desc";
+            }
+
+            function add_input_field() {
+                const reference_container = document.getElementById("inputFieldsReference");
+                const new_input_field_container = document.createElement("div");
+                new_input_field_container.className = "input-row";
+                const new_input_field = document.createElement("input");
+                new_input_field.type = "text";
+                new_input_field.className = "textInput";
+                const new_br = document.createElement("br");
+                const new_button = document.createElement("button");
+                new_button.className = "btn";
+                new_button.type = "button";
+                new_button.title = "Eingabefeld entfernen";
+                new_button.style.marginTop = "0";
+                new_button.style.fontWeight = "bold";
+
+                // new_button.style.width = "57px"
+                // new_button.style.height = "46px"
+                // new_button.style.fontSize = "2rem"
+                // new_button.style.display = "flex"
+                // new_button.style.alignItems = "center"
+                // new_button.style.justifyContent = "center"
+
+                new_button.innerText = "-";
+                new_button.onclick = (event) => {
+                    const container_to_be_removed = event.target.parentNode;
+                    const reference_container = event.target.parentNode.parentNode;
+                    reference_container.removeChild(container_to_be_removed);
+                };
+
+                new_input_field_container.appendChild(new_input_field);
+                new_input_field_container.appendChild(new_br);
+                new_input_field_container.appendChild(new_button);
+
+                reference_container.appendChild(new_input_field_container);
             }
         </script>
     </body>
